@@ -1,57 +1,402 @@
+# coding: utf-8
 import sys
+import os
+from pathlib import Path
+from PySide6.QtCore import Qt, QFile
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
+from PySide6.QtGui import QColor
+from qfluentwidgets import (
+    FluentWindow, NavigationItemPosition, FluentIcon,
+    setTheme, Theme, setThemeColor, ScrollArea, SubtitleLabel, BodyLabel,
+    TitleLabel, StrongBodyLabel, CardWidget, SimpleCardWidget,
+    ElevatedCardWidget, PushButton, PrimaryPushButton, Slider,
+    DoubleSpinBox, InfoBar, InfoBarPosition, InfoBadge,
+    ProgressBar, CaptionLabel, ImageLabel, isDarkTheme
+)
 
-from PySide6 import QtCore, QtWidgets
 
-"""
-QWidget 有层级关系（z轴）
-默认情况下，后绘制的控件会遮盖先绘制的控件
-可以通过API调整层级关系
+class StatusCard(SimpleCardWidget):
+    """悬浮状态卡片 - 显示传感器数据"""
 
-.lower()                降低层级
-.raise_()               提高层级(注意为避免和关键字冲突，末尾有下划线)
-.stackUnder(QWidget q)  将自身置于q之下
-"""
+    def __init__(self, name, channel, parent=None):
+        super().__init__(parent)
+        self.name = name
+        self.channel = channel
+        self.value = 0.0
+
+        self.__initWidget()
+        self.__initLayout()
+
+    def __initWidget(self):
+        """初始化组件"""
+        self.setFixedSize(140, 100)
+
+    def __initLayout(self):
+        """初始化布局"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+
+        self.nameLabel = CaptionLabel(self.name)
+        self.nameLabel.setTextColor(QColor(96, 96, 96), QColor(206, 206, 206))
+
+        self.valueLabel = TitleLabel(f'{self.value:.1f} N')
+        self.valueLabel.setStyleSheet('font-size: 24px; font-weight: bold; color: #00A896;')
+
+        self.progressBar = ProgressBar(self)
+        self.progressBar.setRange(0, 100)
+        self.progressBar.setValue(0)
+        self.progressBar.setFixedHeight(6)
+
+        self.badge = InfoBadge.success('正常')
+
+        layout.addWidget(self.nameLabel)
+        layout.addWidget(self.valueLabel)
+        layout.addWidget(self.progressBar)
+        layout.addWidget(self.badge, 0, Qt.AlignRight)
+
+    def updateValue(self, value):
+        """更新数值"""
+        self.value = value
+        self.valueLabel.setText(f'{self.value:.1f} N')
+        self.progressBar.setValue(int(value))
+
+        if value > 80:
+            self.badge = InfoBadge.warning('过载')
+        elif value > 50:
+            self.badge = InfoBadge.attension('警告')
+        else:
+            self.badge = InfoBadge.success('正常')
 
 
-class MyWidget(QtWidgets.QWidget):
+class DataMonitorInterface(ScrollArea):
+    """数据监测界面 - 主界面"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('dataMonitorInterface')
+        self.view = QWidget(self)
+        self.vBoxLayout = QVBoxLayout(self.view)
+
+        self.statusCards = {}
+        self.slider_spin_pairs = {}
+
+        self.__initWidget()
+        self.__initLayout()
+
+    def __initWidget(self):
+        """初始化界面组件"""
+        self.view.setObjectName('dataMonitorView')
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setWidget(self.view)
+        self.setWidgetResizable(True)
+
+        self.vBoxLayout.setContentsMargins(20, 20, 20, 20)
+        self.vBoxLayout.setSpacing(20)
+
+    def __initLayout(self):
+        """初始化布局"""
+        main_layout = QHBoxLayout()
+        main_layout.setSpacing(20)
+
+        left_widget = self.__createLeftWidget()
+        right_widget = self.__createRightWidget()
+
+        main_layout.addWidget(left_widget, 7)
+        main_layout.addWidget(right_widget, 3)
+
+        self.vBoxLayout.addLayout(main_layout)
+
+    def __createLeftWidget(self):
+        """创建左侧患者数字孪生区"""
+        card = ElevatedCardWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        title = SubtitleLabel('康复设备监控')
+        layout.addWidget(title)
+
+        human_container = QWidget()
+        human_layout = QGridLayout(human_container)
+        human_layout.setContentsMargins(0, 0, 0, 0)
+        human_layout.setSpacing(0)
+
+        image_path = Path(__file__).parent / 'resource' / 'body.png'
+        human_label = ImageLabel(str(image_path))
+        human_label.setFixedSize(300, 500)
+        human_label.setBorderRadius(8, 8, 8, 8)
+        human_label.scaledToHeight(500)
+
+        human_layout.addWidget(human_label, 0, 0, 4, 1, Qt.AlignCenter)
+
+        self.statusCards['LF'] = StatusCard('左肩 LF', 'LF')
+        self.statusCards['RF'] = StatusCard('右肩 RF', 'RF')
+        self.statusCards['LB'] = StatusCard('左膝 LB', 'LB')
+        self.statusCards['RB'] = StatusCard('右膝 RB', 'RB')
+
+        human_layout.addWidget(self.statusCards['LF'], 0, 1, Qt.AlignLeft | Qt.AlignTop)
+        human_layout.addWidget(self.statusCards['RF'], 0, 1, Qt.AlignRight | Qt.AlignTop)
+        human_layout.addWidget(self.statusCards['LB'], 3, 1, Qt.AlignLeft | Qt.AlignBottom)
+        human_layout.addWidget(self.statusCards['RB'], 3, 1, Qt.AlignRight | Qt.AlignBottom)
+
+        layout.addWidget(human_container)
+
+        return card
+
+    def __createRightWidget(self):
+        """创建右侧指挥控制中心"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        force_control_card = self.__createForceControlCard()
+        quick_actions_card = self.__createQuickActionsCard()
+        system_status_card = self.__createSystemStatusCard()
+
+        layout.addWidget(force_control_card)
+        layout.addWidget(quick_actions_card)
+        layout.addWidget(system_status_card)
+        layout.addStretch()
+
+        return widget
+
+    def __createForceControlCard(self):
+        """创建力控参数调节卡片"""
+        card = CardWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = SubtitleLabel('力控参数调节')
+        layout.addWidget(title)
+
+        channels = ['LF', 'LB', 'RF', 'RB']
+
+        for channel in channels:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+
+            label = BodyLabel(channel)
+            label.setFixedWidth(30)
+
+            slider = Slider(Qt.Horizontal)
+            slider.setRange(0, 100)
+            slider.setValue(0)
+
+            spin_box = DoubleSpinBox()
+            spin_box.setRange(0, 100)
+            spin_box.setValue(0)
+            spin_box.setDecimals(2)
+            spin_box.setFixedWidth(80)
+
+            slider.valueChanged.connect(lambda v, sb=spin_box, ch=channel: self.__onSliderChanged(v, sb, ch))
+            spin_box.valueChanged.connect(lambda v, s=slider, ch=channel: self.__onSpinBoxChanged(v, s, ch))
+
+            self.slider_spin_pairs[channel] = {
+                'slider': slider,
+                'spinbox': spin_box
+            }
+
+            row_layout.addWidget(label)
+            row_layout.addWidget(slider)
+            row_layout.addWidget(spin_box)
+
+            layout.addWidget(row)
+
+        return card
+
+    def __createQuickActionsCard(self):
+        """创建快捷指令卡片"""
+        card = SimpleCardWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = SubtitleLabel('快捷指令')
+        layout.addWidget(title)
+
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+
+        identify_btn = PrimaryPushButton('参数自动辨识')
+        identify_btn.clicked.connect(self.__onIdentify)
+
+        reset_btn = PushButton('系统复位')
+        reset_btn.clicked.connect(self.__onReset)
+
+        button_layout.addWidget(identify_btn)
+        button_layout.addWidget(reset_btn)
+
+        layout.addLayout(button_layout)
+
+        return card
+
+    def __createSystemStatusCard(self):
+        """创建系统状态卡片"""
+        card = CardWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = SubtitleLabel('系统状态')
+        layout.addWidget(title)
+
+        self.statusLabel = BodyLabel('系统就绪，通讯正常')
+        self.statusLabel.setStyleSheet('color: #00A896; font-weight: bold;')
+
+        layout.addWidget(self.statusLabel)
+
+        self.retry_btn = PrimaryPushButton('点击重试')
+        self.retry_btn.setObjectName('retry_btn')
+        self.retry_btn.setFixedHeight(40)
+        self.retry_btn.clicked.connect(self.__onRetry)
+        self.retry_btn.hide()
+
+        layout.addWidget(self.retry_btn)
+
+        return card
+
+    def __onSliderChanged(self, value, spin_box, channel):
+        """滑动条数值改变"""
+        spin_box.setValue(value)
+        self.statusCards[channel].updateValue(value)
+
+    def __onSpinBoxChanged(self, value, slider, channel):
+        """数字框数值改变"""
+        slider.setValue(int(value))
+        self.statusCards[channel].updateValue(value)
+
+    def __onIdentify(self):
+        """参数自动辨识"""
+        InfoBar.info(
+            title='提示',
+            content='参数自动辨识中...',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+
+    def __onReset(self):
+        """系统复位"""
+        for channel in self.slider_spin_pairs:
+            self.slider_spin_pairs[channel]['slider'].setValue(0)
+            self.slider_spin_pairs[channel]['spinbox'].setValue(0)
+            self.statusCards[channel].updateValue(0)
+
+        InfoBar.success(
+            title='成功',
+            content='系统已复位',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+
+    def __onRetry(self):
+        """点击重试"""
+        InfoBar.warning(
+            title='警告',
+            content='正在重试...',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+
+
+class PlaceholderInterface(ScrollArea):
+    """占位界面 - 用于康复训练、趣味游戏、用户自定义"""
+
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self.setObjectName(f'{title}Interface')
+        self.view = QWidget(self)
+        self.vBoxLayout = QVBoxLayout(self.view)
+
+        self.__initWidget(title)
+
+    def __initWidget(self, title):
+        """初始化界面组件"""
+        self.view.setObjectName(f'{title}View')
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setWidget(self.view)
+        self.setWidgetResizable(True)
+
+        self.vBoxLayout.setContentsMargins(20, 20, 20, 20)
+        self.vBoxLayout.setSpacing(20)
+
+        label = TitleLabel(title)
+        label.setAlignment(Qt.AlignCenter)
+        self.vBoxLayout.addWidget(label)
+
+        self.vBoxLayout.addStretch()
+
+
+class MainWindow(FluentWindow):
+    """主窗口 - 继承自 FluentWindow"""
+
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("QWidget-层级关系")
-        self.resize(800, 600)
-        self.setup_ui()
-        self.test_01()
+        self.__initWindow()
+        self.__initNavigation()
 
-    def setup_ui(self) -> None:
-        """设置界面"""
-        self.label_1 = QtWidgets.QLabel("标签1", self)
-        self.label_1.resize(200, 200)
-        self.label_1.setStyleSheet("background-color: red;")
+    def __initWindow(self):
+        """初始化窗口属性"""
+        self.resize(1100, 700)
+        self.setMinimumSize(1000, 640)
+        self.setWindowTitle('康复医疗仪表盘')
+        self.setCustomBackgroundColor(QColor("#F5070770"), QColor("#F80B0B"))
+    def __initNavigation(self):
+        """初始化导航栏"""
+        self.dataMonitorInterface = DataMonitorInterface(self)
+        self.rehabTrainingInterface = PlaceholderInterface('康复训练', self)
+        self.funGameInterface = PlaceholderInterface('趣味游戏', self)
+        self.userCustomInterface = PlaceholderInterface('用户自定义', self)
 
-        # 默认情况下，后绘制的控件会覆盖先绘制的
-        self.label_2 = QtWidgets.QLabel("标签2", self)
-        self.label_2.resize(200, 200)
-        self.label_2.setStyleSheet("background-color: green;")
-        self.label_2.move(50, 50)
+        self.addSubInterface(
+            self.dataMonitorInterface,
+            FluentIcon.SPEED_HIGH,
+            '数据监测'
+        )
+        self.addSubInterface(
+            self.rehabTrainingInterface,
+            FluentIcon.GAME,
+            '康复训练'
+        )
+        self.addSubInterface(
+            self.funGameInterface,
+            FluentIcon.EMOJI_TAB_SYMBOLS,
+            '趣味游戏'
+        )
+        self.addSubInterface(
+            self.userCustomInterface,
+            FluentIcon.SETTING,
+            '用户自定义',
+            NavigationItemPosition.BOTTOM
+        )
 
-    def test_01(self) -> None:
-        """测试调整层级关系功能"""
-        button = QtWidgets.QPushButton("显示标签1", self)
-        button.move(400, 100)
 
-        @QtCore.Slot()
-        def test_slot() -> None:
-            """按钮的槽函数"""
-            # 以下三种方法之一，都可以使得label_1显示在前面
-            # self.label_2.lower()  # 降低label_2的层级
-            # self.label_1.raise_()  # 提高label_1的层级
-            self.label_2.stackUnder(self.label_1)  # 使得2在1之下
+def main():
+    """主函数"""
+    app = QApplication(sys.argv)
+    qss_file = Path(__file__).parent / 'resource' / 'light' / 'demo.qss'
+    if qss_file.exists():
+        with open(qss_file, 'r', encoding='utf-8') as f:
+            app.setStyleSheet(f.read())
 
-        # 连接按钮点击信号与槽函数
-        button.clicked.connect(test_slot)  # type: ignore
+    w = MainWindow()
+    w.show()
 
-
-if __name__ == "__main__":
-    app = QtWidgets.QApplication([])
-    window = MyWidget()
-    window.show()
     sys.exit(app.exec())
+
+
+if __name__ == '__main__':
+    main()
