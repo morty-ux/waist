@@ -3,7 +3,7 @@ import sys
 import os
 from pathlib import Path
 from PySide6.QtCore import Qt, QFile
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,QStyle, QStyleOptionSlider
 from PySide6.QtGui import QColor
 from qfluentwidgets import (
     FluentWindow, NavigationItemPosition, FluentIcon,

@@ -108,6 +108,8 @@ PushButton:pressed {
 }
 
 /* ==================== 滑动条样式 ==================== */
+/* 注释掉Slider样式，测试是否影响鼠标事件 */
+/*
 Slider::groove:horizontal {
     height: 4px;
     background: #E0E0E0;
@@ -125,6 +127,7 @@ Slider::handle:horizontal {
 Slider::handle:horizontal:hover {
     background: #008F82;
 }
+*/
 
 /* ==================== 进度条样式 ==================== */
 ProgressBar {

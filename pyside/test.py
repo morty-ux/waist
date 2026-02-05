@@ -1,180 +1,101 @@
-# coding:utf-8
+# coding: utf-8
 import sys
-from PySide6.QtCore import Qt, QRect, QUrl
-from PySide6.QtGui import QIcon, QPainter, QImage, QBrush, QColor, QFont, QDesktopServices
-from PySide6.QtWidgets import QApplication, QFrame, QStackedWidget, QHBoxLayout, QLabel
-
-from qfluentwidgets import (NavigationInterface, NavigationItemPosition, NavigationWidget, MessageBox,
-                            isDarkTheme, setTheme, Theme, setThemeColor, qrouter, FluentWindow, NavigationAvatarWidget)
-from qfluentwidgets import FluentIcon as FIF
-from qframelesswindow import FramelessWindow, StandardTitleBar
+from pathlib import Path
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout
+from PySide6.QtCore import Qt
+from qfluentwidgets import Slider, CardWidget, ScrollArea, FluentWindow, FluentIcon, SubtitleLabel, BodyLabel
 
 
-class Widget(QFrame):
+class DataMonitorInterface(ScrollArea):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('dataMonitorInterface')
+        self.view = QWidget(self)
+        self.vBoxLayout = QVBoxLayout(self.view)
 
-    def __init__(self, text: str, parent=None):
-        super().__init__(parent=parent)
-        self.label = QLabel(text, self)
-        self.label.setAlignment(Qt.AlignCenter)
-        self.hBoxLayout = QHBoxLayout(self)
-        self.hBoxLayout.addWidget(self.label, 1, Qt.AlignCenter)
-        self.setObjectName(text.replace(' ', '-'))
+        self.sliders = {}
+
+        self.__initWidget()
+        self.__initLayout()
+
+    def __initWidget(self):
+        self.view.setObjectName('dataMonitorView')
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setWidget(self.view)
+        self.setWidgetResizable(True)
+
+        self.vBoxLayout.setContentsMargins(20, 20, 20, 20)
+        self.vBoxLayout.setSpacing(20)
+
+    def __initLayout(self):
+        card = CardWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = SubtitleLabel('力控参数调节')
+        layout.addWidget(title)
+
+        channels = ['LF', 'LB', 'RF', 'RB']
+
+        for channel in channels:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+
+            label = BodyLabel(channel)
+            label.setFixedWidth(30)
+
+            slider = Slider(Qt.Horizontal)
+            slider.setRange(0, 100)
+            slider.setValue(0)
+
+            self.sliders[channel] = slider
+            slider.valueChanged.connect(lambda v, ch=channel: self.on_slider_changed(v, ch))
+
+            row_layout.addWidget(label)
+            row_layout.addWidget(slider)
+
+            layout.addWidget(row)
+
+        self.vBoxLayout.addWidget(card)
+
+    def on_slider_changed(self, value, channel):
+        print(f'{channel}: {value}')
 
 
-
-class Window(FramelessWindow):
-
+class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
-        self.setTitleBar(StandardTitleBar(self))
+        self.__initWindow()
+        self.__initNavigation()
 
-        # use dark theme mode
-        # setTheme(Theme.DARK)
+    def __initWindow(self):
+        self.resize(400, 300)
+        self.setWindowTitle('滑动条测试')
 
-        # change the theme color
-        # setThemeColor('#0078d4')
-
-        self.hBoxLayout = QHBoxLayout(self)
-        self.navigationInterface = NavigationInterface(self, showMenuButton=True)
-        self.stackWidget = QStackedWidget(self)
-
-        # create sub interface
-        self.searchInterface = Widget('Search Interface', self)
-        self.musicInterface = Widget('Music Interface', self)
-        self.videoInterface = Widget('Video Interface', self)
-        self.folderInterface = Widget('Folder Interface', self)
-        self.settingInterface = Widget('Setting Interface', self)
-        self.albumInterface = Widget('Album Interface', self)
-        self.albumInterface1 = Widget('Album Interface 1', self)
-        self.albumInterface2 = Widget('Album Interface 2', self)
-        self.albumInterface1_1 = Widget('Album Interface 1-1', self)
-
-        # initialize layout
-        self.initLayout()
-
-        # add items to navigation interface
-        self.initNavigation()
-
-        self.initWindow()
-
-    def initLayout(self):
-        self.hBoxLayout.setSpacing(0)
-        self.hBoxLayout.setContentsMargins(0, self.titleBar.height(), 0, 0)
-        self.hBoxLayout.addWidget(self.navigationInterface)
-        self.hBoxLayout.addWidget(self.stackWidget)
-        self.hBoxLayout.setStretchFactor(self.stackWidget, 1)
-
-    def initNavigation(self):
-        # enable acrylic effect
-        # self.navigationInterface.setAcrylicEnabled(True)
-
-        self.addSubInterface(self.searchInterface, FIF.SEARCH, 'Search')
-        self.addSubInterface(self.musicInterface, FIF.MUSIC, 'Music library')
-        self.addSubInterface(self.videoInterface, FIF.VIDEO, 'Video library')
-
-        self.navigationInterface.addSeparator()
-
-        self.addSubInterface(self.albumInterface, FIF.ALBUM, 'Albums', NavigationItemPosition.SCROLL)
-        self.addSubInterface(self.albumInterface1, FIF.ALBUM, 'Album 1', parent=self.albumInterface)
-        self.addSubInterface(self.albumInterface1_1, FIF.ALBUM, 'Album 1.1', parent=self.albumInterface1)
-        self.addSubInterface(self.albumInterface2, FIF.ALBUM, 'Album 2', parent=self.albumInterface)
-
-        # enable expand state memory for tree menu
-        self.navigationInterface.widget('Album-Interface').setRememberExpandState(True)
-        self.navigationInterface.widget('Album-Interface-1').setRememberExpandState(True)
-
-        # add navigation items to scroll area
-        self.addSubInterface(self.folderInterface, FIF.FOLDER, 'Folder library', NavigationItemPosition.SCROLL)
-        # for i in range(1, 21):
-        #     self.navigationInterface.addItem(
-        #         f'folder{i}',
-        #         FIF.FOLDER,
-        #         f'Folder {i}',
-        #         lambda: print('Folder clicked'),
-        #         position=NavigationItemPosition.SCROLL
-        #     )
-
-        # add custom widget to bottom
-        self.navigationInterface.addWidget(
-            routeKey='avatar',
-            widget=NavigationAvatarWidget('zhiyiYo', 'resource/shoko.png'),
-            onClick=self.showMessageBox,
-            position=NavigationItemPosition.BOTTOM,
+    def __initNavigation(self):
+        self.dataMonitorInterface = DataMonitorInterface(self)
+        self.addSubInterface(
+            self.dataMonitorInterface,
+            FluentIcon.SPEED_HIGH,
+            '测试'
         )
 
-        self.addSubInterface(self.settingInterface, FIF.SETTING, 'Settings', NavigationItemPosition.BOTTOM)
 
-        #!IMPORTANT: don't forget to set the default route key if you enable the return button
-        # qrouter.setDefaultRouteKey(self.stackWidget, self.musicInterface.objectName())
+def main():
+    app = QApplication(sys.argv)
+    qss_file = Path(__file__).parent / 'resource' / 'light' / 'demo.qss'
+    if qss_file.exists():
+        with open(qss_file, 'r', encoding='utf-8') as f:
+            app.setStyleSheet(f.read())
 
-        # set the maximum width
-        # self.navigationInterface.setExpandWidth(300)
+    w = MainWindow()
+    w.show()
 
-        self.stackWidget.currentChanged.connect(self.onCurrentInterfaceChanged)
-        self.stackWidget.setCurrentIndex(1)
-
-        # always expand
-        # self.navigationInterface.setCollapsible(False)
-
-    def initWindow(self):
-        self.resize(900, 700)
-        self.setWindowIcon(QIcon('resource/logo.png'))
-        self.setWindowTitle('PyQt-Fluent-Widgets')
-        self.titleBar.setAttribute(Qt.WA_StyledBackground)
-
-        desktop = QApplication.screens()[0].availableGeometry()
-        w, h = desktop.width(), desktop.height()
-        self.move(w//2 - self.width()//2, h//2 - self.height()//2)
-
-        # NOTE: set the minimum window width that allows the navigation panel to be expanded
-        # self.navigationInterface.setMinimumExpandWidth(900)
-        # self.navigationInterface.expand(useAni=False)
-
-        self.setQss()
-
-    def addSubInterface(self, interface, icon, text: str, position=NavigationItemPosition.TOP, parent=None):
-        """ add sub interface """
-        self.stackWidget.addWidget(interface)
-        self.navigationInterface.addItem(
-            routeKey=interface.objectName(),
-            icon=icon,
-            text=text,
-            onClick=lambda: self.switchTo(interface),
-            position=position,
-            tooltip=text,
-            parentRouteKey=parent.objectName() if parent else None
-        )
-
-    def setQss(self):
-        color = 'dark' if isDarkTheme() else 'light'
-        with open(f'resource/{color}/demo.qss', encoding='utf-8') as f:
-            self.setStyleSheet(f.read())
-
-    def switchTo(self, widget):
-        self.stackWidget.setCurrentWidget(widget)
-
-    def onCurrentInterfaceChanged(self, index):
-        widget = self.stackWidget.widget(index)
-        self.navigationInterface.setCurrentItem(widget.objectName())
-
-        #!IMPORTANT: This line of code needs to be uncommented if the return button is enabled
-        # qrouter.push(self.stackWidget, widget.objectName())
-
-    def showMessageBox(self):
-        w = MessageBox(
-            '支持作者🥰',
-            '个人开发不易，如果这个项目帮助到了您，可以考虑请作者喝一瓶快乐水🥤。您的支持就是作者开发和维护项目的动力🚀',
-            self
-        )
-        w.yesButton.setText('来啦老弟')
-        w.cancelButton.setText('下次一定')
-
-        if w.exec():
-            QDesktopServices.openUrl(QUrl("https://afdian.net/a/zhiyiYo"))
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    w = Window()
-    w.show()
-    app.exec()
+    main()
